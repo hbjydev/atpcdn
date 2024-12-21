@@ -1,18 +1,27 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.toml`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { Hono } from 'hono';
+import { isDid } from './did';
+import { getOrRefetchBlob } from './blob';
 
-export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
-	},
-} satisfies ExportedHandler<Env>;
+const app = new Hono<{ Bindings: Env }>();
+
+app.get(`/:did/:blobRef/:type?`, async ctx => {
+	const { did, blobRef, type } = ctx.req.param();
+	if (!isDid(did)) {
+		ctx.status(400);
+		return ctx.text('Invalid DID');
+	}
+
+	let format: RequestInitCfPropertiesImage['format'] = 'jpeg';
+	if (type && ["json", "avif", "webp", "jpeg", "png"].includes(type)) {
+		format = type as RequestInitCfPropertiesImage['format'];
+	}
+
+	const blob = await getOrRefetchBlob(ctx.env.atpcdn_dev, did, blobRef, {
+		image: { format },
+	})!;
+
+	ctx.header('Content-Type', `image/${format}`);
+	return ctx.body(await blob.arrayBuffer());
+});
+
+export default app satisfies ExportedHandler<Env>;
